@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Backyard des Gaziers 2027 – Inscriptions</title>
+<meta name="description" content="Inscris-toi sur un ou plusieurs blocs de 4 h de la Backyard des Gaziers 2027.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏃</text></svg>">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;800&family=Barlow:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <h1>Backyard<span>des Gaziers 2027</span></h1>
+  <p class="lead">24 heures découpées en 6 blocs de 4 h, 18 coureurs par bloc. Choisis ton ou tes créneaux, surtout ceux de la nuit.</p>
+  <nav class="ribbon" id="ribbon" aria-label="Remplissage des blocs"></nav>
+  <div class="axis"><span>Jour 1, 12 h</span><span>minuit</span><span>Jour 2, 12 h</span></div>
+  <div class="status" id="status" role="status">Chargement des inscriptions…</div>
+  <main id="blocs"></main>
+</div>
+<script src="config.js"></script>
+<script>
+const CAP = 18;
+const BLOCS = [
+  {id:'12h-16h',h:'12 h – 16 h',day:'Jour 1',night:false},
+  {id:'16h-20h',h:'16 h – 20 h',day:'Jour 1',night:false},
+  {id:'20h-24h',h:'20 h – 24 h',day:'Jour 1',night:true},
+  {id:'0h-4h',h:'0 h – 4 h',day:'Nuit du jour 1 au jour 2',night:true},
+  {id:'4h-8h',h:'4 h – 8 h',day:'Jour 2',night:true},
+  {id:'8h-12h',h:'8 h – 12 h',day:'Jour 2',night:false}];
+let data = [];
+const $ = s => document.querySelector(s);
+const key = id => 'b' + id.replace(/[^a-z0-9]/gi,'');
+const esc = s => { const d=document.createElement('div'); d.textContent=s; return d.innerHTML; };
+
+async function api(body){
+  const opts = body ? {method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(body)} : {};
+  const r = await fetch(window.API_URL, opts);
+  const d = await r.json();
+  if (!d.ok) throw new Error(d.erreur || 'Erreur inconnue.');
+  return d;
+}
+
+$('#ribbon').innerHTML = BLOCS.map(b=>`<a class="seg${b.night?' night':''}" href="#${key(b.id)}" id="seg-${key(b.id)}"><div class="fill"></div><div class="lab"><b>${b.id.replace('-','–')}</b><span class="n">0/${CAP}</span></div></a>`).join('');
+$('#blocs').innerHTML = BLOCS.map(b=>`<section class="bloc${b.night?' night':''}" id="${key(b.id)}">
+  <div class="head"><h2>${b.h}<span class="day">${b.day}</span></h2><div class="count" id="c-${key(b.id)}">0<small>/${CAP}</small></div></div>
+  <div class="seats" id="s-${key(b.id)}" aria-hidden="true">${'<i class="seat"></i>'.repeat(CAP)}</div>
+  <ul class="names" id="l-${key(b.id)}"></ul>
+  <form data-bloc="${b.id}">
+    <input name="nom" maxlength="60" autocomplete="name" placeholder="Prénom et nom" aria-label="Prénom et nom" required>
+    <input name="tel" maxlength="20" type="tel" autocomplete="tel" placeholder="Téléphone (facultatif)" aria-label="Téléphone">
+    <button class="go" type="submit">M’inscrire sur ce bloc</button>
+  </form>
+  <p class="hint">Ton téléphone n’est visible que par l’organisateur.</p>
+  <div class="msg" id="m-${key(b.id)}" aria-live="polite"></div></section>`).join('');
+
+function render(){
+  BLOCS.forEach(b=>{
+    const k=key(b.id), list=data.filter(e=>e.bloc===b.id), n=list.length, full=n>=CAP;
+    $('#c-'+k).innerHTML=`${n}<small>/${CAP}</small>`;
+    $('#s-'+k).querySelectorAll('.seat').forEach((s,i)=>s.classList.toggle('on',i<n));
+    $('#seg-'+k+' .fill').style.height=Math.min(100,n/CAP*100)+'%';
+    $('#seg-'+k+' .n').textContent=`${n}/${CAP}`;
+    $('#l-'+k).innerHTML=list.map(e=>`<li>${esc(e.nom)}</li>`).join('');
+    const f=document.querySelector(`form[data-bloc="${b.id}"]`);
+    f.querySelectorAll('input,button').forEach(el=>el.disabled=full);
+    f.querySelector('button').textContent=full?'Bloc complet':'M’inscrire sur ce bloc';
+  });
+  $('#status').textContent = data.length ? '' : 'Aucun inscrit pour l’instant. Lance-toi sur le premier bloc.';
+}
+
+async function load(){
+  try { const d = await api(); data = d.inscrits; render(); }
+  catch { $('#status').textContent = 'Les inscriptions ne répondent pas. Recharge la page dans un instant.'; }
+}
+
+document.querySelectorAll('form').forEach(f=>f.addEventListener('submit', async ev=>{
+  ev.preventDefault();
+  const bloc=f.dataset.bloc, m=$('#m-'+key(bloc)), btn=f.querySelector('button');
+  btn.disabled=true; m.style.color=''; m.textContent='Inscription en cours…';
+  try {
+    const d = await api({action:'inscrire', bloc, nom:f.nom.value, tel:f.tel.value});
+    data = d.inscrits; f.reset(); render();
+    m.style.color='var(--ok)'; m.textContent='C’est noté, tu es inscrit sur ce bloc.';
+  } catch (err) {
+    btn.disabled=false; m.style.color='var(--err)';
+    m.textContent = err.message || 'L’inscription n’est pas passée. Réessaie.';
+    load();
+  }
+}));
+
+if (!window.API_URL || window.API_URL.startsWith('COLLE')) {
+  $('#status').textContent = 'Site pas encore relié : colle l’URL Apps Script dans config.js.';
+} else { load(); setInterval(load, 60000); }
+</script>
+</body>
+</html>
